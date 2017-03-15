@@ -16,6 +16,7 @@ def get_date(fpath, *, noexcept=False):
         if not noexcept:
             raise exc
         print(exc)
+        return None
     return datetime.strptime(str(dt), "%Y:%m:%d %H:%M:%S")
 
 
@@ -72,7 +73,7 @@ def main():
     parser.add_argument("--out-path", help="path to file/folder")
     parser.add_argument("--mask", default="*", help="mask 0f files")
     parser.add_argument("--delta", type=int, default=0, help="diff in seconds")
-    parser.add_argument("--noexcept", default=False, help="skip exceptions")
+    parser.add_argument("--noexcept", default=False, action='store_true', help="skip exceptions")
     args = parser.parse_args()
 
     if not path.exists(args.in_path):
@@ -90,10 +91,15 @@ def main():
 
     result = []
     for f in files:
+        if path.isdir(f):
+            continue
         _, ext = path.splitext(f)
         date = get_date(f, noexcept=args.noexcept)
-        new_date = move_date(date, args.delta)
-        new_fpath = pick_path(new_date, args.out_path, ext=ext)
+        new_date = date
+        new_fpath = path.join(args.out_path, path.basename(f))
+        if date:
+            new_date = move_date(date, args.delta)
+            new_fpath = pick_path(new_date, args.out_path, ext=ext)
 
         result.append((f, date, new_date, new_fpath))
 
@@ -116,7 +122,7 @@ def main():
             print("Exit")
             return
 
-        copy_other_files = False
+        copy_other_files = True
         other_files = excluded_files(args.in_path, [row[0] for row in result])
         if other_files:
             print("Other files:\n{}".format("\t{}".format('\n\t'.join(other_files))))
