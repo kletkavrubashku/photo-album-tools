@@ -60,6 +60,18 @@ def collect_photos(photos_out, message):
                 break
 
 
+def collect_videos(videos_out, message):
+    video_link = 'https://vk.com/video{}_{}'
+    if 'video' not in message:
+        return
+    videos_out.append({
+        'owner_id': message['video']['owner_id'],
+        'link': video_link.format(message['video']['owner_id'], message['video']['vid']),
+        'date': message['video']['date'],
+        'access_key': message['video']['access_key'] if 'access_key' in message['video'] else '',
+    })
+
+
 def main():
     config = configparser.ConfigParser()
     config.read(['vk_photos_default_config.ini', 'vk_photos_config.ini'])
@@ -80,16 +92,23 @@ def main():
             if n % 1000 == 0:
                 print('\t{} from {}'.format(n, len(messages)))
 
-            links, photos = [], []
-            vkapi.messages.process_item(item, functools.partial(collect_links, links), fwd_messages=True)
-            vkapi.messages.process_attachments(item, functools.partial(collect_links, links), fwd_messages=True)
-            vkapi.messages.process_attachments(item, functools.partial(collect_photos, photos), fwd_messages=True)
-            if links or photos:
+            links, photos, videos = [], [], []
+            try:
+                vkapi.messages.process_item(item, functools.partial(collect_links, links), fwd_messages=True)
+                vkapi.messages.process_attachments(item, functools.partial(collect_links, links), fwd_messages=True)
+                vkapi.messages.process_attachments(item, functools.partial(collect_photos, photos), fwd_messages=True)
+                vkapi.messages.process_attachments(item, functools.partial(collect_videos, videos), fwd_messages=True)
+            except Exception as e:
+                print(e)
+                print(json_to_str(item))
+
+            if links or photos or videos:
                 data_arr.append({
                     'date': item['date'],
                     'uid': item['uid'],
                     'links': links,
-                    'photos': photos
+                    'photos': photos,
+                    'videos': videos
                 })
 
     print('Collect uids...')
@@ -116,6 +135,13 @@ def main():
                 users.append(photo_item['owner_id'])
             else:
                 groups.append(-photo_item['owner_id'])
+        for video_item in item['videos']:
+            if not isinstance(video_item['owner_id'], int):
+                continue
+            if video_item['owner_id'] > 0:
+                users.append(video_item['owner_id'])
+            else:
+                groups.append(-video_item['owner_id'])
 
     uid_to_name = {}
     print('Resolve user names...')
@@ -153,6 +179,17 @@ def main():
 
             data_dict.setdefault(u_name, {}).setdefault(owner_name, []).append(data_dict_photo_item)
 
+        for video_item in item['videos']:
+            data_dict_video_item = {
+                'link': video_item['link'],
+                'access_key': video_item['access_key'],
+                'date': datetime.datetime.fromtimestamp(video_item['date']).strftime('%Y-%m-%d %H:%M:%S') if video_item['date'] else None
+            }
+            u_name = '{} ({})'.format(uid_to_name.get(item['uid'], item['uid']), item['uid'])
+            owner_name = '{} ({})'.format(uid_to_name.get(video_item['owner_id'], video_item['owner_id']), video_item['owner_id'])
+
+            data_dict.setdefault(u_name, {}).setdefault(owner_name, []).append(data_dict_video_item)
+
     print('Save files...')
     shutil.rmtree(OUTPUT_DIR_NAME, ignore_errors=True)
     os.makedirs(OUTPUT_DIR_NAME)
@@ -178,6 +215,8 @@ def main():
                         urllib.request.urlretrieve(i['src'], os.path.join(dir1, f_name))
                     except urllib.error.HTTPError as e:
                         print("\t\t\tERROR: '{}' - code {}".format(i['src'], e.code))
+                elif 'access_key' in i:
+                    links.append('{0} <a href="{1}">{1}</a>_{2}'.format(i['date'], i['link'], i['access_key']))
                 else:
                     links.append('{0} <a href="{1}">{1}</a>'.format(i['date'], i['link']))
             if links:
